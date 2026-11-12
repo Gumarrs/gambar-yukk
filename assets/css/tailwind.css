@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body {
+    @apply bg-cream font-body text-ink antialiased;
+  }
+  body {
+    background-image: radial-gradient(#2b2d4214 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
+  }
+}
+
+@layer components {
+  .sticker {
+    @apply rounded-3xl border-[3px] border-ink bg-white;
+    box-shadow: 5px 5px 0 0 #2b2d42;
+  }
+  .btn {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-2xl border-[3px] border-ink px-5 py-3 font-display text-lg font-semibold transition disabled:pointer-events-none disabled:opacity-50;
+    box-shadow: 3px 3px 0 0 #2b2d42;
+  }
+  .btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 1px 1px 0 0 #2b2d42;
+  }
+  .btn-primary {
+    @apply bg-sun hover:brightness-105;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-cream;
+  }
+  .btn-danger {
+    @apply bg-coral text-white hover:brightness-105;
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent underline-offset-4 hover:underline;
+    box-shadow: none;
+  }
+  .btn-ghost:active {
+    box-shadow: none;
+  }
+  .input {
+    @apply w-full rounded-2xl border-[3px] border-ink bg-white px-4 py-3 font-body text-lg font-extrabold outline-none placeholder:text-ink/30 focus:ring-4 focus:ring-sky/40;
+  }
+  .spinner {
+    @apply inline-block h-5 w-5 animate-spin rounded-full border-[3px] border-ink/30 border-t-ink;
+  }
+}
