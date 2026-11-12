@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { ResultDrawing, RoundResults } from '~/types/game'
 
-defineProps<{
+const props = defineProps<{
   results: RoundResults
   meId: string
   canStartNext?: boolean
@@ -11,6 +11,45 @@ defineProps<{
 const emit = defineEmits<{ next: []; refreshUrls: [] }>()
 
 const zoomed = ref<ResultDrawing | null>(null)
+
+// Collage sharing: build once, preview, then share/download from a fresh click.
+const building = ref(false)
+const collageBlob = shallowRef<Blob | null>(null)
+const collageUrl = ref<string | null>(null)
+const collageMsg = ref<string | null>(null)
+
+function closeCollage() {
+  if (collageUrl.value) URL.revokeObjectURL(collageUrl.value)
+  collageUrl.value = null
+  collageBlob.value = null
+}
+
+async function makeCollage() {
+  building.value = true
+  collageMsg.value = null
+  try {
+    const blob = await buildCollage(props.results)
+    closeCollage()
+    collageBlob.value = blob
+    collageUrl.value = URL.createObjectURL(blob)
+  } catch {
+    collageMsg.value = 'Kolase gagal dibuat. Coba lagi ya.'
+  } finally {
+    building.value = false
+  }
+}
+
+async function shareIt() {
+  if (!collageBlob.value) return
+  const out = await shareCollage(collageBlob.value, `Hasil gambar ronde ${props.results.round_number} di Gambar Bareng!`)
+  collageMsg.value = out === 'downloaded' ? 'Kolase diunduh. Silakan unggah ke medsos favoritmu!' : null
+}
+
+function downloadIt() {
+  if (collageBlob.value) downloadBlob(collageBlob.value, 'gambar-bareng.png')
+}
+
+onBeforeUnmount(closeCollage)
 </script>
 
 <template>
@@ -18,6 +57,10 @@ const zoomed = ref<ResultDrawing | null>(null)
     <div class="mb-6 text-center">
       <p class="font-display text-lg font-semibold text-ink/60">Ronde {{ results.round_number }}</p>
       <h2 class="text-4xl font-bold sm:text-5xl">Hasil gambar kalian! 🎉</h2>
+      <div class="mt-4">
+        <AppButton variant="secondary" :loading="building" @click="makeCollage">📸 Bagikan kolase</AppButton>
+        <p v-if="collageMsg && !collageUrl" class="mt-2 font-bold text-coral">{{ collageMsg }}</p>
+      </div>
     </div>
 
     <div class="grid gap-6 lg:grid-cols-[minmax(0,340px)_1fr]">
@@ -77,6 +120,18 @@ const zoomed = ref<ResultDrawing | null>(null)
     <p v-else-if="waitingText" class="mt-8 text-center font-display text-lg font-semibold text-ink/60">
       {{ waitingText }}
     </p>
+
+    <AppModal :open="!!collageUrl" title="Kolase hasil gambar" @close="closeCollage">
+      <div class="max-h-[60vh] overflow-auto rounded-xl border-[3px] border-ink">
+        <img v-if="collageUrl" :src="collageUrl" alt="Kolase hasil gambar" class="w-full" />
+      </div>
+      <p v-if="collageMsg" class="mt-3 font-bold text-ink/70">{{ collageMsg }}</p>
+      <template #footer>
+        <AppButton variant="ghost" @click="closeCollage">Tutup</AppButton>
+        <AppButton variant="secondary" @click="downloadIt">⬇️ Unduh</AppButton>
+        <AppButton @click="shareIt">📤 Bagikan</AppButton>
+      </template>
+    </AppModal>
 
     <AppModal :open="!!zoomed" :title="zoomed?.player_name" @close="zoomed = null">
       <img v-if="zoomed?.drawing_url" :src="zoomed.drawing_url" :alt="`Gambar oleh ${zoomed.player_name}`" class="w-full rounded-xl border-[3px] border-ink" />
