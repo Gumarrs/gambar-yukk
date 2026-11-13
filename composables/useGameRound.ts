@@ -37,6 +37,7 @@ export function useGameRound() {
   let running = false
   let syncing = false
   const boundaryHit = new Set<string>()
+  const preloaded = new Set<string>()
 
   const serverNow = () => nowMs.value + clockOffset.value
 
@@ -109,8 +110,16 @@ export function useGameRound() {
       hasSubmitted.value = true
     }
     // A later sync that omits the prompt must not wipe the reference image we already have for this round.
-    const merged = prev && prev.id === next.id && !next.prompt && prev.prompt ? { ...next, prompt: prev.prompt } : next
+    const lacksImage = !next.prompt || !next.prompt.image_url
+    const merged = prev && prev.id === next.id && lacksImage && prev.prompt?.image_url ? { ...next, prompt: prev.prompt } : next
     round.value = merged
+    // Start downloading the reference image the moment its URL is known, so it is cached when shown.
+    const refUrl = merged.prompt?.image_url
+    if (refUrl && import.meta.client && !preloaded.has(refUrl)) {
+      preloaded.add(refUrl)
+      const img = new Image()
+      img.src = refUrl
+    }
     if (merged.status === 'results' || merged.status === 'completed') maybeLoadResults(merged.id)
   }
 
@@ -238,7 +247,9 @@ export function useGameRound() {
     }
     if (!running) return
     const live = phase.value === 'countdown' || phase.value === 'drawing' || phase.value === 'ending'
-    pollTimer = setTimeout(pollLoop, live ? POLL_ACTIVE_MS : POLL_IDLE_MS)
+    // Poll faster during the 3s countdown and the post-deadline grace window so changes arrive quickly.
+    const fast = phase.value === 'countdown' || phase.value === 'ending'
+    pollTimer = setTimeout(pollLoop, fast ? 1000 : live ? POLL_ACTIVE_MS : POLL_IDLE_MS)
   }
 
   function startPolling() {

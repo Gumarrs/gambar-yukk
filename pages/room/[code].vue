@@ -9,6 +9,7 @@ const { session, load, validate, clear } = useGuestSession()
 const room = useRoom()
 const realtime = useRealtimeRoom()
 const game = useGameRound()
+const sound = useSound()
 
 const { roomState } = room
 const { status: rtStatus, onlineIds } = realtime
@@ -172,24 +173,39 @@ watch(phase, (p) => {
   }
 })
 
-// Auto-submit what has been drawn near the deadline: up to 3 tries from 3s left, plus one last try
-// when the timer hits zero. The backend still decides whether the submission window is open.
-const autoAttempts = new Map<string, number>()
-async function tryAutoSubmit(roundId: string, last = false) {
-  if (hasSubmitted.value || submitting.value) return
-  if (!canvasRef.value?.hasContent) return
-  const n = autoAttempts.get(roundId) ?? 0
-  if (n >= (last ? 4 : 3)) return
-  autoAttempts.set(roundId, n + 1)
-  await submit(true)
+// Auto-submit at the deadline. Players can keep drawing until the very last second; when time runs
+// out the canvas locks and the snapshot is uploaded straight away, retrying a few times. The server
+// accepts submissions for a short grace period after drawing_ends_at (backend/003_submission_grace.sql).
+const autoStarted = new Set<string>()
+const STOP_RETRY = ['DRAWING_EXPIRED', 'ROUND_NOT_ACTIVE', 'INVALID_SESSION', 'PLAYER_LEFT', 'ROOM_CLOSED']
+async function autoSubmitAtDeadline(roundId: string) {
+  if (autoStarted.has(roundId)) return
+  autoStarted.add(roundId)
+  if (!canvasRef.value?.hasContent) return // nothing drawn: counts as timeout
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (hasSubmitted.value || round.value?.id !== roundId || phase.value === 'results') return
+    try {
+      const blob = await canvasRef.value.toBlob()
+      const ok = await game.submitDrawing(blob)
+      if (ok && session.value) {
+        submittedIds.value = new Set([...submittedIds.value, session.value.player_id])
+        realtime.send('drawing_submitted', { player_id: session.value.player_id, round_id: roundId })
+      }
+      return
+    } catch (e) {
+      const err = toApiError(e)
+      console.warn('[gambar-bareng] kirim otomatis gagal:', err.code, `(percobaan ${attempt + 1})`)
+      if (STOP_RETRY.includes(err.code)) {
+        error.value = err.message
+        return
+      }
+      await new Promise((r) => setTimeout(r, 1200))
+    }
+  }
+  error.value = 'Gambarmu belum berhasil terkirim otomatis. Cek koneksi internetmu.'
 }
-watch(remaining, async (r) => {
-  const rd = round.value
-  if (!rd || phase.value !== 'drawing' || r > 3 || r <= 0) return
-  await tryAutoSubmit(rd.id)
-})
-watch(phase, async (p) => {
-  if (p === 'ending' && round.value) await tryAutoSubmit(round.value.id, true)
+watch(phase, (p) => {
+  if (p === 'ending' && round.value) void autoSubmitAtDeadline(round.value.id)
 })
 
 async function submit(silent = false) {
@@ -226,6 +242,63 @@ const startGame = () =>
     realtime.send('round_state_changed', {})
     await refreshRoom()
   })
+
+// ---- Game settings (master, before the game starts) ----
+const DURATIONS = [30, 60, 90, 120, 180]
+const ROUND_OPTIONS = [1, 2, 3, 5, 7, 10]
+const savingSettings = ref(false)
+
+async function saveSettings(patch: { duration?: number; rounds?: number }) {
+  const duration = patch.duration ?? roomInfo.value?.round_duration_seconds ?? 90
+  const rounds = patch.rounds ?? roomInfo.value?.total_rounds ?? 3
+  savingSettings.value = true
+  error.value = null
+  try {
+    await room.updateSettings(duration, rounds)
+    realtime.send('round_state_changed', {})
+    await refreshRoom()
+  } catch (e) {
+    error.value = toApiError(e).message
+  } finally {
+    savingSettings.value = false
+  }
+}
+
+// ---- Round label and end of game ----
+const totalRounds = computed(() => roomInfo.value?.total_rounds ?? null)
+const roundLabel = computed(() => {
+  const n = roomInfo.value?.round_in_game ?? round.value?.round_number ?? 0
+  return totalRounds.value ? `Ronde ${n} / ${totalRounds.value}` : `Ronde ${n}`
+})
+const gameOver = computed(() => {
+  const played = roomInfo.value?.round_in_game
+  return phase.value === 'results' && !!totalRounds.value && played != null && played >= totalRounds.value
+})
+
+// ---- Sounds ----
+watch(countdownSeconds, (s) => {
+  if (phase.value === 'countdown' && s > 0) sound.count()
+})
+watch(remaining, (s) => {
+  if (phase.value !== 'drawing' || s <= 0 || s > 5) return
+  if (s === 1) sound.lastTick()
+  else sound.tick()
+})
+watch(phase, (p, prev) => {
+  if (p === 'drawing' && prev !== 'drawing') {
+    sound.go()
+    sound.startMusic()
+  } else if (p === 'ending') {
+    sound.stopMusic()
+    sound.timeUp()
+  } else if (p === 'results') {
+    sound.stopMusic()
+    if (prev !== 'results') sound.fanfare()
+  } else if (p === 'idle' || p === 'countdown') {
+    sound.stopMusic()
+  }
+})
+onBeforeUnmount(() => sound.stopMusic())
 
 async function leaveRoom() {
   leaveOpen.value = false
@@ -266,7 +339,10 @@ async function backHome() {
         <span class="rounded-full border-[3px] border-ink bg-white px-3 py-1 font-display font-bold tracking-widest">
           {{ codeParam }}
         </span>
-        <ConnectionBadge :status="rtStatus" :degraded="connectionLost" class="ml-auto" />
+        <div class="ml-auto flex items-center gap-2">
+          <SoundToggle />
+          <ConnectionBadge :status="rtStatus" :degraded="connectionLost" />
+        </div>
         <AppButton variant="ghost" class="!px-3 !py-1 !text-base" @click="leaveOpen = true">Keluar</AppButton>
       </div>
     </header>
@@ -285,9 +361,46 @@ async function backHome() {
       <section v-if="phase === 'idle'" class="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <div class="space-y-5">
           <RoomCode :code="codeParam" />
-          <div class="sticker space-y-1 p-4 font-bold">
-            <p>⏱ Durasi gambar: {{ roomInfo?.round_duration_seconds ?? 90 }} detik</p>
-            <p>👥 Pemain: {{ players.length }} / {{ roomInfo?.max_players ?? 4 }}</p>
+          <div class="sticker space-y-4 p-4">
+            <h3 class="text-xl font-bold">⚙️ Pengaturan game</h3>
+
+            <div>
+              <p class="mb-2 font-extrabold">⏱ Waktu menggambar</p>
+              <div v-if="isMaster" class="flex flex-wrap gap-2">
+                <button
+                  v-for="d in DURATIONS"
+                  :key="d"
+                  type="button"
+                  class="btn btn-secondary !px-3 !py-1.5 !text-base"
+                  :class="roomInfo?.round_duration_seconds === d ? '!bg-sun' : ''"
+                  :disabled="savingSettings"
+                  @click="saveSettings({ duration: d })"
+                >
+                  {{ d }} dtk
+                </button>
+              </div>
+              <p v-else class="font-bold">{{ roomInfo?.round_duration_seconds ?? 90 }} detik</p>
+            </div>
+
+            <div v-if="isMaster || roomInfo?.total_rounds">
+              <p class="mb-2 font-extrabold">🔁 Jumlah ronde</p>
+              <div v-if="isMaster" class="flex flex-wrap gap-2">
+                <button
+                  v-for="n in ROUND_OPTIONS"
+                  :key="n"
+                  type="button"
+                  class="btn btn-secondary !px-3 !py-1.5 !text-base"
+                  :class="roomInfo?.total_rounds === n ? '!bg-sun' : ''"
+                  :disabled="savingSettings"
+                  @click="saveSettings({ rounds: n })"
+                >
+                  {{ n }}
+                </button>
+              </div>
+              <p v-else class="font-bold">{{ roomInfo?.total_rounds }} ronde</p>
+            </div>
+
+            <p class="font-extrabold">👥 Pemain: {{ players.length }} / {{ roomInfo?.max_players ?? 4 }}</p>
           </div>
         </div>
 
@@ -312,14 +425,17 @@ async function backHome() {
       </section>
 
       <!-- Countdown -->
-      <section v-else-if="phase === 'countdown'">
+      <section v-else-if="phase === 'countdown'" class="grid items-center gap-6 md:grid-cols-2">
         <CountdownOverlay :seconds="countdownSeconds" />
+        <div class="mx-auto w-full max-w-sm">
+          <ReferenceImage :prompt="round?.prompt ?? null" />
+        </div>
       </section>
 
       <!-- Drawing -->
       <section v-else-if="phase === 'drawing' || phase === 'ending'" class="space-y-4">
         <div class="flex flex-wrap items-center gap-4">
-          <p class="font-display text-xl font-semibold">Ronde {{ round?.round_number }}</p>
+          <p class="font-display text-xl font-semibold">{{ roundLabel }}</p>
           <GameTimer :seconds="remaining" :total="totalSeconds" class="ml-auto" />
         </div>
         <div class="grid gap-5 lg:grid-cols-[minmax(0,320px)_1fr]">
@@ -378,6 +494,8 @@ async function backHome() {
           :results="results"
           :me-id="session?.player_id ?? ''"
           :can-start-next="isMaster"
+          :game-over="gameOver"
+          :round-label="roundLabel"
           :starting="busy === 'start'"
           waiting-text="Menunggu pembuat room memulai ronde berikutnya…"
           @next="startGame"

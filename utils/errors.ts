@@ -8,17 +8,20 @@ export class ApiError extends Error {
 }
 
 const RULES: Array<[RegExp, string, string]> = [
+  [/could not find the function|pgrst202/, 'FEATURE_UNAVAILABLE', 'Fitur ini belum aktif di server. Jalankan SQL migrasi di backend dulu.'],
+  [/pengaturan hanya/, 'SETTINGS_LOCKED', 'Pengaturan hanya bisa diubah sebelum game dimulai.'],
+  [/game sedang berjalan/, 'GAME_RUNNING', 'Game sedang berjalan.'],
   [/failed to fetch|network|\bload failed|fetch failed|timeout/, 'NETWORK', 'Koneksi internet bermasalah. Cek koneksimu lalu coba lagi.'],
   [/drawing prompt|prompt aktif|no active prompt/, 'NO_PROMPT', 'Belum ada gambar referensi aktif di server, jadi game belum bisa dimulai. Hubungi pembuat game.'],
   [/invalid.*(session|token|guest|credential)|unauthorized|session invalid|invalid player/, 'INVALID_SESSION', 'Sesimu sudah tidak berlaku. Silakan gabung lagi.'],
-  [/only.*master|not.*master|master only/, 'NOT_MASTER', 'Hanya pembuat room yang bisa memulai game.'],
+  [/only.*master|not.*master|master only|hanya master/, 'NOT_MASTER', 'Hanya pembuat room yang bisa melakukan ini.'],
   [/already left|player left|has left/, 'PLAYER_LEFT', 'Kamu sudah keluar dari room ini.'],
   [/room.*closed|closed room/, 'ROOM_CLOSED', 'Room ini sudah ditutup.'],
   [/(drawing|submission|submit|round|time).*(expired|ended|over|window|closed)/, 'DRAWING_EXPIRED', 'Waktu menggambar sudah habis.'],
-  [/room.*expired|expired room/, 'ROOM_EXPIRED', 'Room ini sudah kedaluwarsa.'],
+  [/room.*expired|expired room|kedaluwarsa/, 'ROOM_EXPIRED', 'Room ini sudah kedaluwarsa.'],
   [/full|penuh/, 'ROOM_FULL', 'Room sudah penuh (maksimal 4 pemain).'],
-  [/room.*not found|invalid room|room code/, 'ROOM_NOT_FOUND', 'Kode room tidak ditemukan. Cek lagi kodenya ya.'],
-  [/round.*(not active|not found|no active)|no (active )?round|not active/, 'ROUND_NOT_ACTIVE', 'Ronde belum aktif atau sudah selesai.'],
+  [/room.*not found|invalid room|room code|room tidak ditemukan/, 'ROOM_NOT_FOUND', 'Kode room tidak ditemukan. Cek lagi kodenya ya.'],
+  [/round.*(not active|not found|no active)|no (active )?round|not active|sudah selesai|round tidak ditemukan/, 'ROUND_NOT_ACTIVE', 'Ronde belum aktif atau sudah selesai.'],
   [/upload|storage|png|file/, 'UPLOAD_FAILED', 'Gambar gagal diunggah. Coba kirim lagi.']
 ]
 

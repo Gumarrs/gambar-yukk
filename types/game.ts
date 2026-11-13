@@ -20,6 +20,10 @@ export interface RoomInfo {
   max_players: number
   round_duration_seconds: number
   current_round_number: number
+  /** Rounds per game. null until get_room_state exposes it. */
+  total_rounds: number | null
+  /** Which round of the current game is running (1-based). null until get_room_state exposes it. */
+  round_in_game: number | null
 }
 
 export interface RoomState {

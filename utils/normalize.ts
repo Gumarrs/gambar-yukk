@@ -107,7 +107,9 @@ export function normalizeRoomState(data: unknown): RoomState {
       master_player_id: masterId ?? players.find((p) => p.is_master)?.id ?? null,
       max_players: num(roomRaw.max_players, 4),
       round_duration_seconds: num(roomRaw.round_duration_seconds, 90),
-      current_round_number: num(roomRaw.current_round_number, 0)
+      current_round_number: num(roomRaw.current_round_number, 0),
+      total_rounds: typeof roomRaw.total_rounds === 'number' ? roomRaw.total_rounds : null,
+      round_in_game: typeof roomRaw.round_in_game === 'number' ? roomRaw.round_in_game : null
     },
     players
   }
@@ -140,6 +142,26 @@ function flatPrompt(r: Raw): PromptInfo | null {
   })
 }
 
+/** Last resort: find any nested object that carries an image URL, whatever the RPC names its fields. */
+function deepPrompt(v: unknown, depth = 0): PromptInfo | null {
+  if (!isObj(v) || depth > 3) return null
+  const img = str(v.image_url) ?? str(v.prompt_image_url) ?? str(v.reference_image_url) ?? str(v.thumbnail_url)
+  if (img) {
+    return normalizePrompt({
+      id: v.id ?? v.prompt_id,
+      title: v.title ?? v.prompt_title,
+      category: v.category ?? v.prompt_category,
+      image_url: img,
+      difficulty: v.difficulty ?? v.prompt_difficulty
+    })
+  }
+  for (const val of Object.values(v)) {
+    const found = deepPrompt(val, depth + 1)
+    if (found) return found
+  }
+  return null
+}
+
 let warnedNoPrompt = false
 
 /** Returns null when the room has no round yet. */
@@ -149,10 +171,16 @@ export function normalizeRoundState(data: unknown): RoundState | null {
   const r: Raw = isObj(raw.round) ? raw.round : isObj(raw.current_round) ? raw.current_round : raw
   const id = str(r.id) ?? str(r.round_id)
   if (!id) return null
-  const prompt =
-    normalizePrompt(r.prompt ?? raw.prompt ?? r.drawing_prompt ?? raw.drawing_prompt) ?? flatPrompt(r) ?? flatPrompt(raw)
+  const candidates = [
+    normalizePrompt(r.prompt ?? raw.prompt ?? r.drawing_prompt ?? raw.drawing_prompt),
+    flatPrompt(r),
+    flatPrompt(raw),
+    deepPrompt(raw)
+  ]
+  // Prefer a candidate that actually has an image URL.
+  const prompt = candidates.find((c) => c?.image_url) ?? candidates.find(Boolean) ?? null
   const status = (str(r.status) ?? 'countdown') as RoundStatus
-  if (!prompt && (status === 'countdown' || status === 'drawing') && !warnedNoPrompt) {
+  if (!prompt?.image_url && (status === 'countdown' || status === 'drawing') && !warnedNoPrompt) {
     warnedNoPrompt = true
     // Key names only, never values.
     console.warn('[gambar-bareng] sync_round_state tanpa prompt. Keys:', Object.keys(raw), 'round keys:', Object.keys(r))

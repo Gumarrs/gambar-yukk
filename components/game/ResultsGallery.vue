@@ -7,6 +7,9 @@ const props = defineProps<{
   canStartNext?: boolean
   starting?: boolean
   waitingText?: string
+  /** True after the last round of a game. */
+  gameOver?: boolean
+  roundLabel?: string
 }>()
 const emit = defineEmits<{ next: []; refreshUrls: [] }>()
 
@@ -55,7 +58,10 @@ onBeforeUnmount(closeCollage)
 <template>
   <div>
     <div class="mb-6 text-center">
-      <p class="font-display text-lg font-semibold text-ink/60">Ronde {{ results.round_number }}</p>
+      <p class="font-display text-lg font-semibold text-ink/60">{{ roundLabel ?? `Ronde ${results.round_number}` }}</p>
+      <p v-if="gameOver" class="mx-auto mb-2 w-fit rounded-full border-[3px] border-ink bg-sun px-4 py-1 font-display text-lg font-bold">
+        🏁 Itu ronde terakhir. Game selesai!
+      </p>
       <h2 class="text-4xl font-bold sm:text-5xl">Hasil gambar kalian! 🎉</h2>
       <div class="mt-4">
         <AppButton variant="secondary" :loading="building" @click="makeCollage">📸 Bagikan kolase</AppButton>
@@ -115,7 +121,9 @@ onBeforeUnmount(closeCollage)
     </div>
 
     <div v-if="canStartNext" class="mt-8 text-center">
-      <AppButton :loading="starting" class="!px-8 !py-4 !text-2xl" @click="emit('next')">🎨 Ronde berikutnya</AppButton>
+      <AppButton :loading="starting" class="!px-8 !py-4 !text-2xl" @click="emit('next')">
+        {{ gameOver ? '🔁 Main lagi dari awal' : '🎨 Ronde berikutnya' }}
+      </AppButton>
     </div>
     <p v-else-if="waitingText" class="mt-8 text-center font-display text-lg font-semibold text-ink/60">
       {{ waitingText }}

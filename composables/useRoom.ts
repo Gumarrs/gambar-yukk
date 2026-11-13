@@ -47,6 +47,15 @@ export function useRoom() {
     await rpc('set_player_ready', { ...authParams(requireSession()), p_is_ready: isReady })
   }
 
+  /** Master only, before the game starts. Needs the set_room_settings RPC (see backend/001_room_settings.sql). */
+  async function updateSettings(durationSeconds: number, totalRounds: number) {
+    await rpc('set_room_settings', {
+      ...authParams(requireSession()),
+      p_round_duration_seconds: durationSeconds,
+      p_total_rounds: totalRounds
+    })
+  }
+
   async function startGame() {
     await rpc('start_game', authParams(requireSession()))
   }
@@ -88,5 +97,16 @@ export function useRoom() {
     hbTimer = null
   }
 
-  return { roomState, createRoom, joinRoom, refresh, setReady, startGame, leave, startHeartbeat, stopHeartbeat }
+  return {
+    roomState,
+    createRoom,
+    joinRoom,
+    refresh,
+    setReady,
+    updateSettings,
+    startGame,
+    leave,
+    startHeartbeat,
+    stopHeartbeat
+  }
 }

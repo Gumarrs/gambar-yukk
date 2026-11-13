@@ -35,7 +35,8 @@ export function useBackend() {
         const ctx = (error as any).context
         if (ctx && typeof ctx.json === 'function') {
           const j = await ctx.json()
-          text = String(j?.error ?? j?.message ?? j?.code ?? text)
+          // "detail" is only used to pick a friendly message; it is never shown to the player.
+          text = [j?.error ?? j?.message ?? j?.code, j?.detail].filter(Boolean).join(' ') || text
         }
       } catch {
         /* keep original message */
